@@ -5,7 +5,9 @@
 // oss.c
 
 char *arg2; // to send process_id num to process
-char *arg3; // to send shm_id num to process 
+char *arg3; // to send pcb shm_id num to process 
+char *arg4; // to send runInfo shm_id num to process 
+char *arg5; // to send lClock shm_id to process
 lClock_t *lClock;
 pcb_t *pcbs[18] = { NULL };
 run_info_t *runInfo;
@@ -18,6 +20,8 @@ main (int argc, char *argv[]) {
 	char *arg1 = "userProcess";
 	arg2 = malloc(sizeof(int)); // process num in pcbs
 	arg3 = malloc(sizeof(int)); // shm_id to pcb
+	arg4 = malloc(sizeof(int)); // shm_id to runInfo
+	arg5 = malloc(sizeof(int)); // shm_id to lClock 
 	int r, i, shm_id;
 	int usedPcbs[18] = { 0 }; // "bit vector" for used PIDs
 	bool isPcbsFull = false;
@@ -25,7 +29,7 @@ main (int argc, char *argv[]) {
 	srandom(time(NULL));
 	signal(SIGINT, free_mem);
 	signal(SIGALRM, timeout);
-	alarm(60);	
+	//alarm(60);	
 
 	// create shared clock
 	if((shm_id = shmget(IPC_PRIVATE,sizeof(lClock_t*),IPC_CREAT | 0755)) == -1) {
@@ -36,14 +40,14 @@ main (int argc, char *argv[]) {
 	lClock->milli = 0;
 	lClock->shm_id = shm_id;
 	
-	// create shared runInfo
+	/*// create shared runInfo
 	if((shm_id = shmget(IPC_PRIVATE,sizeof(run_info_t*),IPC_CREAT|0755)) == -1){
 		perror("shmget:runinfo");
 	}	
 	runInfo = (run_info_t*) shmat(shm_id,0,0);
 	runInfo->shm_id = shm_id;
-	runInfo->lClock = (lClock_t*) shmat(shm_id,0,0);
 	// set burst and process_num each time a process is chosen
+	runInfo->burst = 3000; // tmp TODO remove*/
 	
 	while(1) { // infinite loop until alarm finishes
 		if (nextCreate < lClock->sec) {
@@ -59,7 +63,7 @@ main (int argc, char *argv[]) {
 				fprintf(stderr, "pcbs array was full trying again...\n");
 				// update logical clock if pcbs is full
 				r = random() % 1000;	
-				updateClock(r, false);
+				updateClock(r);
 				continue;
 			}
 			// create and assign pcb to the OS's array
@@ -68,7 +72,9 @@ main (int argc, char *argv[]) {
 			pcbs[next] = initPcb();
 			usedPcbs[next] = true;
 			sprintf(arg2, "%d", next); // process num in pcbs
-			sprintf(arg3, "%d", pcbs[next]->shm_id); // shm_id for pcb
+			sprintf(arg3, "%d", pcbs[next]->shm_id); // pcb for userProcess
+			//sprintf(arg4, "%d", runInfo->shm_id); // runInfo for userProcess
+			sprintf(arg5, "%d", lClock->shm_id); // lClock for userProcess
 			if ((pcbs[next]->pid = fork()) == -1) {
 				perror("fork");
 				// clean up process if fork failed
@@ -76,16 +82,17 @@ main (int argc, char *argv[]) {
 				usedPcbs[next] = false;
 				// update logical clock if fork fails
 				r = random() % 1000;	
-				updateClock(r, false);
+				updateClock(r);
 				continue;
 			}
 			if (pcbs[next]->pid == 0) { // child process 
-				execl("userProcess", arg1, arg2, arg3, 0);
+				fprintf(stderr,"Starting execl process\n");
+				execl("userProcess", arg1, arg2, arg3, arg5, 0);
 			} // need else block to save pids?
 			// only master process
-			sem_signal(pcbs[next]->sem_id,0); // let userProcess start
-			sem_wait(pcbs[next]->sem_id,0); // wait until its burst is done
-			fprintf(stderr,"oss : OS is done waiting for userProcess!\n");
+			//scheduleProcess(0);
+			//sem_wait(pcbs[next]->sem_id,0); // wait until its burst is done
+			//fprintf(stderr,"oss : OS is done waiting for userProcess!\n");
 
 			// next process creation time
 			r = rand() % 3; // 0-2
@@ -108,7 +115,7 @@ main (int argc, char *argv[]) {
 		}
 		// update logical clock
 		r = random() % 1000;	
-		updateClock(r, false);
+		updateClock(r);
 	} // end infinite while	
 
 	// cleanup after normal execution - never reached in current implementation
@@ -119,7 +126,7 @@ main (int argc, char *argv[]) {
 void scheduleProcess(int queue) {
 	static int i = 0;
 	int next;
-	for(i %= 18; i < 18; i++) {
+	/*for(i %= 18; i < 18; i++) {
 		if(pcbs[i] == NULL) {
 			fprintf(stderr,"scheduleProcess: %d is NULL\n");
 			continue;
@@ -127,14 +134,17 @@ void scheduleProcess(int queue) {
 		next = i;
 		i++; // take turns
 		break;
-	}
+	} */
 	// set runInfo
-	runInfo->process_num = next;
-	runInfo->burst = 3; // seconds for now
+	//runInfo->process_num = next;
+	runInfo->burst = 3000; // seconds for now
 	// to be safe if all processes are NULL
 	if (i >= 18) {
 		i %= 18;
 	}	
+
+	sem_signal(pcbs[next]->sem_id,0); // let userProcess start
+
 // TODO determine shortest process for SJF strategey priority 0,1
 
 
@@ -142,23 +152,13 @@ void scheduleProcess(int queue) {
 
 }
 // update clock for 1 iteration, or update by a custom millisec. amt
-void updateClock(int r, bool isCustom) {
-	if (!isCustom) {	
+void updateClock(int r) {
+	lClock->sec++;
+	lClock->milli += r;
+	if(lClock->milli > 1000) {
 		lClock->sec++;
-		lClock->milli += r;
-		if(lClock->milli > 1000) {
-			lClock->sec++;
-			lClock->milli -= 1000;
-		}
-	} else {
-		fprintf(stderr, "Custom Clock adjustment : %d\n", r);
-		lClock->milli += r;
-		while (lClock->milli > 1000) {
-			lClock->sec++;
-			lClock->milli -= 1000;
-		}
+		lClock->milli -= 1000;
 	}
-	fprintf(stderr,"Clock: %02d:%04d\n", lClock->sec, lClock->milli);
 	sleep(1); // slow it down
 }
 
@@ -214,18 +214,18 @@ void removePcb(pcb_t *pcbs[], int i) {
 		return;
 	}
 	// clean up semaphore
-	if ((n = semctl(pcbs[i]->sem_id,0,IPC_RMID)) != 0) {
+	if ((n = semctl(pcbs[i]->sem_id,0,IPC_RMID)) == -1) {
 		perror("semctl:IPC_RMID");
 	}	
 	// clean up shared memory
 	shm_id = pcbs[i]->shm_id;
-	if((shmdt((pcb_t*)pcbs[i])) == -1) {
+	if((n = shmdt(pcbs[i])) == -1) {
 		perror("shmdt");
 	}
-	pcbs[i] = NULL;
-	if((shmctl(shm_id, IPC_RMID, NULL)) == -1) {
+	if((n = shmctl(shm_id, IPC_RMID, NULL)) == -1) {
 		perror("shmctl:IPC_RMID");
 	}
+	pcbs[i] = NULL;
 }
 
 // call removePcb on entire array of pcbs
@@ -239,25 +239,25 @@ void cleanUpPcbs(pcb_t *pcbs[]) {
 // clean up with free(), remove lClock, call cleanUpPcbs()
 void cleanUp() {
 	int shm_id = runInfo->shm_id;
-	if ((shmdt(runInfo->lClock)) == -1) {
-		perror("shmdt:runInfo->lClock");
-	}
+
 	if ((shmdt(runInfo)) == -1) {
 		perror("shmdt:runInfo");
 	}
-	if ((shmctl(shm_id, IPC_RMIC, NULL)) == -1) {
-		
+	if ((shmctl(shm_id, IPC_RMID, NULL)) == -1) {
+		perror("shmctl:IPC_RMID:runInfo");	
 	}
+	shm_id = lClock->shm_id;
 	if ((shmdt(lClock)) == -1) {
 		perror("shmdt:lClock");
 	}
-	if ((shmctl(shm_id, IPC_RMID,NULL)) == -1) {
-		perror("shmctl:IPC_RMID");
+	if ((shmctl(shm_id, IPC_RMID, NULL)) == -1) {
+		perror("shmctl:IPC_RMID:lClock");
 	}
 	cleanUpPcbs(pcbs);
 	free(arg2);
-	//free(arg3);
-
+	free(arg3);
+	free(arg4);
+	free(arg5);
 }
 // SIGINT handler
 void free_mem() {

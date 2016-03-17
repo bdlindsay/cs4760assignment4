@@ -43,14 +43,14 @@ typedef struct {
 
 typedef struct {
 	int process_num;
-	long burst; // burst time in ms
-	lClock_t *lClock; // lClock shm_id
+	unsigned int burst; // burst time in ms
 	int shm_id; // run_info_t shm_id 
 } run_info_t;
 
 // helper functions
 pcb_t* initPcb();
-void updateClock(int,bool);
+void updateClock(int);
 void cleanUpPcbs(pcb_t *pcbs[]);
 void cleanUp();
 void removePcb(pcb_t *pcbs[], int i);
+void scheduleProcess(int);

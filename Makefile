@@ -22,7 +22,7 @@ $(OBJSM) : oss.h semaphore.h
 $(EXES) : $(OBJSS)
 	$(CC) -o $@ $(OBJSS)
 
-$(OBJSS) : userProcess.h semaphore.h
+$(OBJSS) : oss.h semaphore.h
 
 clean :
 	$(RM) -f $(EXES) $(EXEM) $(OBJSS) $(OBJSM)
