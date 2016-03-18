@@ -1,1 +1,14 @@
 # cs4760assignment4 - Brett Lindsay
+# 3/17/16
+
+This oss/process scheduler creates its first process after the first clock update. The scheduler has three priority levels that it handles in order 0,1,2,0.... Priority levels 0 and 1 work on a SRTF algorithm, with code to switch it to SJN commented out around it. The oss will see if it is time for a new process to be created (every 1 clock tick on average), then try to run a process on each queue. The exception is for priority level 2 which is using a Round-Robin algorithm. It will attempt to schedule all of its processes for an equal portion of the time quantum. There is code commented out that can switch oss to a "try to create a process"->"Run from a Priority Level" scheme. 
+	Currently the quantum amounts for the different priorities are 3 - priority# (3, 2, 1 for priority levels 0, 1, 2 respectively). After all priority levels are checked, oss checks if any processes have been completed and removes their PCB if so. 
+
+	Processes that were not interupted by I/O and did not finish is their first alloted quantum will have their priority in the system lowered. All processes start at the highest priority.
+
+Processes have a 50/50 of being cpu- or io- bound and will have their average completion time adjusted accordingly. Additionally, io-cound processes are more likely to not use the entire quantum allowed to it, and if this occurs, its priority is not penalized for it. 
+
+Processes are signaled on their individual semaphores to start and oss will wait for them to finish their quantum before continuing. Processes have a chance of abnormal termination after they have passed .500 in their totalCpuTime field. 
+
+The system's logical clock is represented as a double: [seconds].[milliseconds].
+
