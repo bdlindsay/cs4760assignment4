@@ -17,40 +17,46 @@
 typedef enum {false, true} bool;
 typedef enum {io,cpu} pType;
 
+// logical clock - part of run_info_t
+typedef struct {
+	unsigned int sec;
+	unsigned int milli;
+} lClock_t;
+
 // a process control block
 typedef struct {
-	long totalCpuTime; // time processing
-	long totalSysTime; // time in system
-	int cTime; // create time
-	int dTime; // destroy time
-	long lastBurstTime; 
+	double totalCpuTime; // time processing
+	double totalSysTime; // time in system
+	double cTime; // create time
+	double dTime; // destroy time
+	double lastBurstTime; 
+	bool ioInterupt;
 	int priority; // 0 high, 1 medium, 2 low
 	bool isCompleted;
 	int shm_id; // ref to id for shm
 	int pid; // pid for fork() return value
 	pType bound; // io or cpu 
-	long timeToComplete; // varies based on pType
+	double timeToComplete; // varies based on pType
 	int sem_id; // hold semaphore id
 	//semaphore sem; part of semaphore set referenced to sem_id
 } pcb_t;	
 
-// logical clock
-typedef struct {
-	unsigned int sec;
-	unsigned int milli; 
-	int shm_id;
-} lClock_t;
-
 typedef struct {
 	int process_num;
-	unsigned int burst; // burst time in ms
+	double burst; // burst time in ms
+	double lClock;
 	int shm_id; // run_info_t shm_id 
 } run_info_t;
 
 // helper functions
 pcb_t* initPcb();
-void updateClock(int);
+void updateClock(double);
 void cleanUpPcbs(pcb_t *pcbs[]);
 void cleanUp();
 void removePcb(pcb_t *pcbs[], int i);
-void scheduleProcess(int);
+void scheduleProcess(int,char*,int,int);
+double calcCompletionTime(int); // SRTF
+double getCompletionTime(int); // SJN
+int findSJN(int);
+void scheduleRR(int, char*);
+void updatePcbs(int usedPcbs[]);
