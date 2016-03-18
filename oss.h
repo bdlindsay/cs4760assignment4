@@ -48,6 +48,14 @@ typedef struct {
 	int shm_id; // run_info_t shm_id 
 } run_info_t;
 
+typedef struct {
+	double avgSysTime;
+	double avgWaitTime;
+	double totalCpuTime;
+	double idleTime;
+	int tput;
+} sim_stats_t;
+
 // helper functions
 pcb_t* initPcb();
 void updateClock(double);

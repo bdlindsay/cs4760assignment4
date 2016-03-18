@@ -10,6 +10,7 @@ char *arg4; // to send runInfo shm_id num to process
 char *arg5; // to send lClock shm_id to process
 pcb_t *pcbs[18] = { NULL };
 run_info_t *runInfo;
+sim_stats_t stats; 
 int num = 0;
 //bool timed_out = false;
 // signal handler prototypes
@@ -17,6 +18,7 @@ void free_mem();
 void timeout();
 
 main (int argc, char *argv[]) {
+	char *arg0 = "procSch";
 	char *arg1 = "userProcess";
 	arg2 = malloc(sizeof(int)); // process num in pcbs
 	arg3 = malloc(sizeof(int)); // shm_id to pcb
@@ -26,10 +28,16 @@ main (int argc, char *argv[]) {
 	int usedPcbs[18] = { 0 }; // "bit vector" for used PIDs
 	bool isPcbsFull = false;
 	int next, nextCreate = 0; // points to next available PID
+	int sp_pid;
 	srandom(time(NULL));
 	signal(SIGINT, free_mem);
 	signal(SIGALRM, timeout);
-	//alarm(60);	
+
+	// init sim_stats_t
+	stats.avgSysTime = 0.000;
+	stats.avgWaitTime = 0.000;
+	stats.idleTime = 0.000;
+	stats.tput = 0;
 
 	// create shared runInfo
 	if((shm_id = shmget(IPC_PRIVATE,sizeof(run_info_t*),IPC_CREAT|0755)) == -1){
@@ -80,6 +88,14 @@ main (int argc, char *argv[]) {
 		/*// process create -> queue -> process create...
 		runInfo->burst = 3 - q; // -1 sec burst for each lower priority
 		scheduleProcess(q, arg1, -1, -1); // -1 is NULL value for func*/
+		// OR start process scheduler
+		/*sprintf(arg4,"%d",runInfo->shm_id);
+		if ((sp_pid = fork()) == -1) {
+			perror("fork: sp");
+		}
+		if (sp_pid == 0) { // if child
+			execl("procSch", arg0,arg4,0); 
+		} // else parent*/
 
 		// check for finished processes
 		updatePcbs(usedPcbs);
@@ -106,7 +122,13 @@ void updatePcbs(int usedPcbs[]) {
 	/*	fprintf(stderr, "oss: Checking if process %d is done: %d\n",i, 
 			(bool)pcbs[i]->isCompleted);*/
 		if (pcbs[i]->isCompleted) {
-			// TODO collect data on userProcess
+			// collect data on userProcess
+			stats.tput++;
+			stats.avgSysTime += pcbs[i]->totalSysTime;
+			stats.avgWaitTime += pcbs[i]->totalSysTime - pcbs[i]->totalCpuTime;
+			stats.totalCpuTime += pcbs[i]->totalCpuTime; 
+
+			// remove pcb
 			fprintf(stderr,"oss: Removing finished pcb[%d]\n",i);
 			removePcb(pcbs, i);
 			usedPcbs[i] = false;
@@ -168,7 +190,7 @@ void scheduleProcess(int queue, char *arg1, int rr_p_num, int burstDiv) {
 
 		if ((pcbs[selected]->pid = fork()) == -1) {
 			perror("fork");
-			return; // if fork() fails don't exec
+			return; // if fork() fails don't do anything else 
 		}
 		if (pcbs[selected]->pid == 0) { // child process 
 			execl("userProcess", arg1, arg2, arg3, arg4, 0);
@@ -339,13 +361,30 @@ void cleanUp() {
 // SIGINT handler
 void free_mem() {
 	int z;
+	FILE *fp;
 	fprintf(stderr, "Recieved SIGINT. Cleaning up and quiting.\n");
 
-	/*if (timed_out = true) {
-		// to be safe add pid kill later
-		system("killall userProcess");
-	}*/
-	// this instead?
+	// end stats
+	stats.idleTime = runInfo->lClock - stats.totalCpuTime;
+	stats.avgSysTime /= (double) stats.tput;
+	stats.avgWaitTime /= (double) stats.tput;
+	
+	if ((fp = fopen("endStats.txt","w")) == NULL) {
+		perror("fopen:endstats");
+	} else {
+		// overwrite/write to file
+		fprintf(fp,"End Stats:\nAvg Sys Time: %.3f\nAvg Wait Time: %.3f\nSys Idle Time: %.3f\n",
+			stats.avgSysTime, stats.avgWaitTime, stats.idleTime);
+		fprintf(fp,"TotalCpuTime: %.3f\nTotal Run Time: %.3f\n",
+			stats.totalCpuTime, runInfo->lClock);
+		fclose(fp);
+	}
+	// write to stderr
+	fprintf(stderr,"End Stats:\nAvgSysTime: %.3f\nAvgWaitTime: %.3f\nSysIdleTime: %.3f\n",
+		stats.avgSysTime, stats.avgWaitTime, stats.idleTime);
+	fprintf(stderr,"TotalCpuTime: %.3f\nTotal Run Time: %.3f\n",
+			stats.totalCpuTime, runInfo->lClock);
+	// make sure processes are killed
 	for (z = 0; z < 18; z++) {
 		if (pcbs[z] != NULL) {
 			if (pcbs[z]->pid != -1) {

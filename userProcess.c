@@ -10,6 +10,7 @@ int process_num;
 
 // prototypes 
 void addToClock(double);
+void intr_handler();
 
 main (int argc, char *argv[]) {
 	// argv[0] executable,[1] shared mem shm_id, [1] pcb shared mem
@@ -21,6 +22,7 @@ main (int argc, char *argv[]) {
 	int r; // for random ints
 	double rd; // for random doubles 
 	process_num = atoi(argv[1]);
+	signal(SIGINT,intr_handler);
 	srandom(time(NULL));
 
 	//fprintf(stderr,"Got into Process %d\n", process_num);
