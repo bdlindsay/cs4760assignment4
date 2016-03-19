@@ -11,8 +11,6 @@ char *arg5; // to send lClock shm_id to process
 pcb_t *pcbs[18] = { NULL };
 run_info_t *runInfo;
 sim_stats_t stats; 
-int num = 0;
-//bool timed_out = false;
 // signal handler prototypes
 void free_mem();
 void timeout();
@@ -23,7 +21,7 @@ main (int argc, char *argv[]) {
 	arg2 = malloc(sizeof(int)); // process num in pcbs
 	arg3 = malloc(sizeof(int)); // shm_id to pcb
 	arg4 = malloc(sizeof(int)); // shm_id to runInfo
-	int i, shm_id, q;
+	int i, shm_id, q, n;
 	double r; // for random "milli seconds"
 	int usedPcbs[18] = { 0 }; // "bit vector" for used PIDs
 	bool isPcbsFull = false;
@@ -49,7 +47,7 @@ main (int argc, char *argv[]) {
 	// set burst and process_num each time a process is chosen
 	//q = -1; // 1 queue b/w process creation, init -1 so first queue is 0
 	while(1) { // infinite loop until alarm finishes
-		if (runInfo->lClock > 120) {
+		if (runInfo->lClock > 300) {
 			alarm(1);
 		}
 		if (nextCreate < runInfo->lClock) {
@@ -64,16 +62,15 @@ main (int argc, char *argv[]) {
 			if (isPcbsFull) {
 				fprintf(stderr, "pcbs array was full trying again...\n");
 				// update logical clock if pcbs is full
-				r = (double)(random() % 1000) / 1000;	
-				updateClock(r);
-				continue;
+				//r = (double)(random() % 1000) / 1000;	
+				//updateClock(r);
+			} else { // create a new process
+				// create and assign pcb to the OS's array
+				// init PCB
+				fprintf(stderr, "Creating new process at pcb[%d]\n",next);
+				pcbs[next] = initPcb();
+				usedPcbs[next] = true;
 			}
-			// create and assign pcb to the OS's array
-			// init PCB
-			fprintf(stderr, "Creating new process at pcb[%d]\n",next);
-			pcbs[next] = initPcb();
-			usedPcbs[next] = true;
-
 			// next process creation time
 			r = rand() % 3; // 0-2
 			nextCreate = runInfo->lClock + r;
@@ -82,12 +79,12 @@ main (int argc, char *argv[]) {
 		// schedule a process
 		// process create -> all queues -> process create...
 		for (i = 0; i < 3; i++) {
-			runInfo->burst = 3 - i; // -1 sec burst for each lower priority
-	  	scheduleProcess(i, arg1, -1, -1); // -1 is NULL value for func
+			runInfo->burst = 4 - i; // -1 sec burst for each lower priority
+	  	scheduleProcess(i, arg1, -1); // -1 is NULL value for func
 		}
 		/*// process create -> queue -> process create...
-		runInfo->burst = 3 - q; // -1 sec burst for each lower priority
-		scheduleProcess(q, arg1, -1, -1); // -1 is NULL value for func*/
+		runInfo->burst = 8 - q; // -1 sec burst for each lower priority
+		scheduleProcess(q, arg1, -1); // -1 is NULL value for func*/
 		// OR start process scheduler
 		/*sprintf(arg4,"%d",runInfo->shm_id);
 		if ((sp_pid = fork()) == -1) {
@@ -103,8 +100,8 @@ main (int argc, char *argv[]) {
 		// update logical clock
 		r = (double)(random() % 1000) / 1000;	
 		updateClock(r);
-		/*if (++q >= 3) // proc create -> queue -> proc create 0 -> 1 -> 2 -> 0... 
-			q = 0;*/	
+		//if (++q >= 3) // proc create -> queue -> proc create 0 -> 1 -> 2 -> 0... 
+		//	q = 0; // for other implementation test
 	} // end infinite while	
 
 	// cleanup after normal execution - never reached in current implementation
@@ -114,13 +111,13 @@ main (int argc, char *argv[]) {
 // check for finished processes
 void updatePcbs(int usedPcbs[]) {
 	int i;
-	num = 0; // number of priority 2 processes
+
 	for (i = 0; i < 18; i++) {
 		if (pcbs[i] == NULL) {
 			continue;
 		}	
-	/*	fprintf(stderr, "oss: Checking if process %d is done: %d\n",i, 
-			(bool)pcbs[i]->isCompleted);*/
+		//fprintf(stderr, "oss: Is process %d P: %d done: %d\n",i,
+		//	pcbs[i]->priority, pcbs[i]->isCompleted);
 		if (pcbs[i]->isCompleted) {
 			// collect data on userProcess
 			stats.tput++;
@@ -134,13 +131,21 @@ void updatePcbs(int usedPcbs[]) {
 			usedPcbs[i] = false;
 		} else if (pcbs[i]->ioInterupt) {
 			fprintf(stderr, "Process %d seems io-bound, maintain priority.\n", i);	
-		}	else if (pcbs[i]->priority == 0) { // if not completed, no io intr
-			fprintf(stderr, "Process %d decreased to priority 1.\n",i);
+		}	else if (pcbs[i]->priority == 0) { 
+			// not completed/no i/o intr
+			fprintf(stderr, "Process %d decreased to priority 1: %.3f.\n",i,
+				pcbs[i]->totalCpuTime);
 			pcbs[i]->priority = 1;
-		} else if (pcbs[i]->priority == 1) {
-			fprintf(stderr, "Process %d decreased to priority 2.\n",i);
+		} else if (pcbs[i]->totalCpuTime == 0) { 
+			fprintf(stderr, "Giving process %d PQ1 Cpu time, maintain priority.\n",i);
+		} else if (pcbs[i]->priority == 1) { 
+			// if still not done, had cpu time
+			fprintf(stderr, "Process %d decreased to priority 2. %.3f\n",i,
+				pcbs[i]->totalCpuTime);
 			pcbs[i]->priority = 2;
-			num++;
+		} else if (pcbs[i]->priority == 2) {
+			fprintf(stderr, "Process %d in PQ2 %.3f/%.3f.\n", i,
+				pcbs[i]->totalCpuTime, pcbs[i]->timeToComplete, pcbs[i]->totalSysTime);
 		}
 	} 
 } // end updatePcbs()
@@ -158,21 +163,22 @@ double getCompletionTime(int i) {
 // which process should run next, queue 0 or 1 SJN, queue 2 Round Robin (rr)
 // send scheduleProcess queue -1 and a valid process number
 // for rr_p_num schedules that process to run for runInfo->burst/burstDiv
-void scheduleProcess(int queue, char *arg1, int rr_p_num, int burstDiv) {
+void scheduleProcess(int queue, char *arg1, int rr_p_num) {
 	int selected = -1;
+	bool q2ran = false; // don't print no processes msg after Q2 completes
 
 	// schedule next process
 	if (queue == 0 || queue == 1) {
 		selected = findSJN(queue);	
 	} else if (queue == 2) {
-		scheduleRR(queue, arg1);	
+		q2ran = scheduleRR(arg1);	
 	} else if (queue == -1) {
-		runInfo->burst /= burstDiv;
 		selected = rr_p_num;
 	}
+
 	// in case there are no processes ready
-	if (selected == -1) {
-		fprintf(stderr,"Queue %d: No available processes to schedule\n", queue);
+	if (selected == -1 && !q2ran) {
+		fprintf(stderr,"Queue %d: No processes to schedule\n", queue);
 		return;
 	}	
 	
@@ -182,6 +188,7 @@ void scheduleProcess(int queue, char *arg1, int rr_p_num, int burstDiv) {
 		if (queue == -1) {
 			queue = 2;
 		}
+
 		fprintf(stderr,"Queue %d scheduling process %d.\n", queue, selected);
 		// args for userProcess
 		sprintf(arg2, "%d", selected); // process num in pcbs
@@ -201,7 +208,7 @@ void scheduleProcess(int queue, char *arg1, int rr_p_num, int burstDiv) {
 	}
 } // end scheduleProcess()
 
-// determine shortest process for SJN strategey priority 0,1
+// determine shortest process for SJN/SRTN strategey priority 0,1
 int findSJN(int queue) {
 	int k;
 	int selected = -1;
@@ -214,12 +221,12 @@ int findSJN(int queue) {
 		if(pcbs[k] != NULL && pcbs[k]->priority == queue &&
 			 !pcbs[k]->isCompleted) { 
 			if (sjn == 0) { // init to completion time of first non-null pcb
-				sjn = calcCompletionTime(k);
-				//sjn = getCompletionTime(k);
+				sjn = calcCompletionTime(k); // SRTN
+				//sjn = getCompletionTime(k); // SJN
 				selected = k;
 			} else {
-				if ((tmp = calcCompletionTime(k)) < sjn) {
-				//if ((tmp = getCompletionTime(k)) < sjn) {
+				if ((tmp = calcCompletionTime(k)) < sjn) { // SRTN
+				//if ((tmp = getCompletionTime(k)) < sjn) { // SJN
 					sjn = tmp;
 					selected = k;
 				} else if (tmp == sjn) {
@@ -236,22 +243,28 @@ int findSJN(int queue) {
 }
 
 // round robin scheduling for priority 2
-void scheduleRR(int queue, char *arg1) {
+bool scheduleRR(char *arg1) {
 	int i = 0;
-	/*// quicker to do as global and count earlier, better practice less globals 
-	for(i = 0; i < 18, i++) {
+	int num = 0;
+	bool ranProc = false;
+	// see how many processes are priority 2
+	for(i = 0; i < 18; i++) {
 		if (pcbs[i] != NULL && pcbs[i]->priority == 2 && !pcbs[i]->isCompleted) {
 			num++;
 		}
-	}*/
+	}
 	if (num > 0) {
 		fprintf(stderr, "Round-Robin Scheduling for %d processes.\n", num); 
 	}
+	runInfo->burst /= (double) num;
 	for(i = 0; i < 18; i++) {
 		if (pcbs[i] != NULL && pcbs[i]->priority == 2 && !pcbs[i]->isCompleted) {
-			scheduleProcess(-1, arg1, i, num); // run process i for burst/num
+			scheduleProcess(-1, arg1, i); // run process i for burst/num
+			ranProc = true;
 		}
 	}
+
+	return ranProc;
 }
 // update clock for 1 iteration, or update by a custom millisec. amt
 void updateClock(double r) {
@@ -293,11 +306,11 @@ pcb_t* initPcb() {
 	} else { // r  > 1
 		pcb->bound = cpu;
 	}	
-	if (pcb->bound == io) { // 1.000-3.999
-		pcb->timeToComplete = (double)((rand() % 3) + 1); // 1-3 
+	if (pcb->bound == io) { // 2.000-4.999
+		pcb->timeToComplete = (double)((rand() % 3) + 2); // 2-4 
 		pcb->timeToComplete += (double)(rand() % 1000) / 1000;// 0-.999
-	} else { // == cpu 4.000-6.999
-		pcb->timeToComplete = (double) ((rand() % 3) + 4); // 4 - 6 
+	} else { // == cpu 6.000-8.999
+		pcb->timeToComplete = (double) ((rand() % 3) + 6); // 6 - 8 
 		pcb->timeToComplete += (double) (rand() % 1000) / 1000;// 0-.999
 	}
 	// semaphore to pause and resume the process
@@ -402,7 +415,6 @@ void free_mem() {
 
 void timeout() {
 	// timeout duration passed, send SIGINT
-	//timed_out = true;
 	fprintf(stderr, "Timeout duraction reached.\n");
 	raise(SIGINT);
 }

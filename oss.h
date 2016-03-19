@@ -62,9 +62,9 @@ void updateClock(double);
 void cleanUpPcbs(pcb_t *pcbs[]);
 void cleanUp();
 void removePcb(pcb_t *pcbs[], int i);
-void scheduleProcess(int,char*,int,int);
+void scheduleProcess(int,char*,int);
 double calcCompletionTime(int); // SRTF
 double getCompletionTime(int); // SJN
 int findSJN(int);
-void scheduleRR(int, char*);
+bool scheduleRR(char*);
 void updatePcbs(int usedPcbs[]);

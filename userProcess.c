@@ -111,9 +111,9 @@ main (int argc, char *argv[]) {
 		// set end stats for oss to collect
 		pcb->dTime = runInfo->lClock;
 		pcb->totalSysTime = pcb->dTime - pcb->cTime;
-	} else if (pcb->totalCpuTime > .500){ // abnormal termination chance	
+	} else if (pcb->totalCpuTime > 2){ // abnormal termination chance	
 		r = rand() % 10; // 0 - 9
-		if (r >= 7) { // 3/10 chance for abnormal termination
+		if (r == 9) { // 1/10 chance for abnormal termination
 			pcb->isCompleted = true;
 			pcb->dTime = runInfo->lClock;
 			pcb->totalSysTime = pcb->dTime - pcb->cTime;
