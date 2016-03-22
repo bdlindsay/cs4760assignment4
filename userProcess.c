@@ -32,101 +32,103 @@ main (int argc, char *argv[]) {
 	if ((pcb = (pcb_t*) shmat(shm_id,0,0)) == (void*) -1) {
 		perror("shmat:pcb");
 	}
-	if (pcb->isCompleted) {
-		fprintf(stderr,"BAD ERROR OCCURED\n");
-		exit(1);
-	}
 
-	// wait to be told to run
-	sem_wait(pcb->sem_id,0);
+	while (!pcb->isCompleted) {
+		// wait to be told to run
+		fprintf(stderr, "Process %d waiting on semaphore\n", process_num);
+		sem_wait(pcb->sem_id,0);
+		fprintf(stderr, "Process %d was signaled\n", process_num);
 
-	// get runInfo
-	shm_id = atoi(argv[3]);
-	if ((runInfo = (run_info_t*) shmat(shm_id,0,0)) == (void*) -1) {
-		perror("shmat:runInfo");
-	}
-	
-	fprintf(stderr,"%s : Proccess %d starting\n",argv[0],process_num);
-
-	// willUseWholeQuantum
-	r = (rand() % 10) + 1; // 1-10
-	if (r > 3) { // most the time io proccesses won't use whole quantum
-		willUseWholeQuantum = false;
-	} else {
-		willUseWholeQuantum = true;
-	}	
-	// opposite if cpu bound
-	if (pcb->bound == cpu && willUseWholeQuantum) {
-		willUseWholeQuantum = false;
-	}	else if (pcb->bound == cpu && !willUseWholeQuantum) {
-		willUseWholeQuantum = true;
-	}
-	// if not all, how much of quantum
-	if (!willUseWholeQuantum) {
-		r = (int) runInfo->burst * 1000; // change to int
-		amtOfQuantum = (double)((rand() % r) + 1) / 1000; // back to double
-		// io bound more likely not to finish, maintain priority
-		if (pcb->bound == io) { 
-			pcb->ioInterupt = true;
+		// get runInfo
+		shm_id = atoi(argv[3]);
+		if ((runInfo = (run_info_t*) shmat(shm_id,0,0)) == (void*) -1) {
+			perror("shmat:runInfo");
 		}
-		fprintf(stderr, "Determined partial quantum: %.3f\n", amtOfQuantum);
-	}
-	if (!willUseWholeQuantum) { // try portion whole quantum
-		// if process is finished before time used
-		if ((pcb->totalCpuTime + amtOfQuantum) > pcb->timeToComplete) {
-			amtOfQuantum = pcb->timeToComplete - pcb->totalCpuTime;
-			fprintf(stderr,"Will finish before partial quantum, new run time: %.3f\n",
-				amtOfQuantum);
-		}	
-		addToClock(amtOfQuantum); // adding processing time case 1
-	} else { // try whole quantum 
-		// if process is finished before time used
-		if ((pcb->totalCpuTime + runInfo->burst) > pcb->timeToComplete) {
+		
+		fprintf(stderr,"%s : Proccess %d starting\n",argv[0],process_num);
+
+		// willUseWholeQuantum
+		r = (rand() % 10) + 1; // 1-10
+		if (r > 3) { // most the time io proccesses won't use whole quantum
 			willUseWholeQuantum = false;
-			amtOfQuantum = pcb->timeToComplete - pcb->totalCpuTime;
-			fprintf(stderr,"Will finish before full quantum, new run time: %.3f\n", 
-				amtOfQuantum);
-			addToClock(amtOfQuantum);	// adding processing time case 2
-		} else {	
-			fprintf(stderr,"Processing for full quantum: %.3f\n",runInfo->burst);
-			addToClock(runInfo->burst); // adding processing time case 3
+		} else {
+			willUseWholeQuantum = true;
+		}	
+		// opposite if cpu bound
+		if (pcb->bound == cpu && willUseWholeQuantum) {
+			willUseWholeQuantum = false;
+		}	else if (pcb->bound == cpu && !willUseWholeQuantum) {
+			willUseWholeQuantum = true;
 		}
-	}	
+		// if not all, how much of quantum
+		if (!willUseWholeQuantum) {
+			r = (int) runInfo->burst * 1000; // change to int
+			amtOfQuantum = (double)((rand() % r) + 1) / 1000; // back to double
+			// io bound more likely not to finish, maintain priority
+			if (pcb->bound == io) { 
+				pcb->ioInterupt = true;
+			}
+			fprintf(stderr, "Determined partial quantum: %.3f\n", amtOfQuantum);
+		}
+		if (!willUseWholeQuantum) { // try portion whole quantum
+			// if process is finished before time used
+			if ((pcb->totalCpuTime + amtOfQuantum) > pcb->timeToComplete) {
+				amtOfQuantum = pcb->timeToComplete - pcb->totalCpuTime;
+				fprintf(stderr,"Will finish before partial quantum, new run time: %.3f\n",
+					amtOfQuantum);
+			}	
+			addToClock(amtOfQuantum); // adding processing time case 1
+		} else { // try whole quantum 
+			// if process is finished before time used
+			if ((pcb->totalCpuTime + runInfo->burst) > pcb->timeToComplete) {
+				willUseWholeQuantum = false;
+				amtOfQuantum = pcb->timeToComplete - pcb->totalCpuTime;
+				fprintf(stderr,"Will finish before full quantum, new run time: %.3f\n", 
+					amtOfQuantum);
+				addToClock(amtOfQuantum);	// adding processing time case 2
+			} else {	
+				fprintf(stderr,"Processing for full quantum: %.3f\n",runInfo->burst);
+				addToClock(runInfo->burst); // adding processing time case 3
+			}
+		}	
 
-	// add the processing time
-	if (willUseWholeQuantum) { // if it used the whole quantum
-		pcb->totalCpuTime += runInfo->burst;
-		pcb->lastBurstTime = runInfo->burst;
-	} else { // if it used a partial quantum
-		pcb->totalCpuTime += amtOfQuantum;
-		pcb->lastBurstTime = amtOfQuantum;
-	}
-	//	update on where the process is at 
-	fprintf(stderr,"Process %d progress: +%.3f -> %.3f/%.3f\n", 
-		process_num, pcb->lastBurstTime, pcb->totalCpuTime, pcb->timeToComplete);
+		// add the processing time
+		if (willUseWholeQuantum) { // if it used the whole quantum
+			pcb->totalCpuTime += runInfo->burst;
+			pcb->lastBurstTime = runInfo->burst;
+		} else { // if it used a partial quantum
+			pcb->totalCpuTime += amtOfQuantum;
+			pcb->lastBurstTime = amtOfQuantum;
+		}
+		//	update on where the process is at 
+		fprintf(stderr,"Process %d progress: +%.3f -> %.3f/%.3f\n", 
+			process_num, pcb->lastBurstTime, pcb->totalCpuTime, pcb->timeToComplete);
 
-	// is this process complete, >= as safety
-	if (pcb->totalCpuTime >= pcb->timeToComplete) {
-		pcb->isCompleted = true;
-		// set end stats for oss to collect
-		pcb->dTime = runInfo->lClock;
-		pcb->totalSysTime = pcb->dTime - pcb->cTime;
-	} else if (pcb->totalCpuTime > 2){ // abnormal termination chance	
-		r = rand() % 10; // 0 - 9
-		if (r == 9) { // 1/10 chance for abnormal termination
+		// is this process complete, >= as safety
+		if (pcb->totalCpuTime >= pcb->timeToComplete) {
 			pcb->isCompleted = true;
+			// set end stats for oss to collect
 			pcb->dTime = runInfo->lClock;
 			pcb->totalSysTime = pcb->dTime - pcb->cTime;
-			fprintf(stderr, "Process %d had \"abnormal\" termination: %.3f/%.3f\n",
-				process_num, pcb->totalCpuTime, pcb->timeToComplete);
-		}		
-	}
-	if (pcb->isCompleted) {
-		fprintf(stderr,"%s : Process %s quiting\n",argv[0], argv[1]);
-	} else {
-		fprintf(stderr,"%s : Process %s is pausing\n", argv[1], argv[1]);
-	}
-	
+		} else if (pcb->totalCpuTime > 2){ // abnormal termination chance	
+			r = rand() % 10; // 0 - 9
+			if (r == 9) { // 1/10 chance for abnormal termination
+				pcb->isCompleted = true;
+				pcb->dTime = runInfo->lClock;
+				pcb->totalSysTime = pcb->dTime - pcb->cTime;
+				fprintf(stderr, "Process %d had \"abnormal\" termination: %.3f/%.3f\n",
+					process_num, pcb->totalCpuTime, pcb->timeToComplete);
+			}		
+		}
+		if (pcb->isCompleted) {
+			fprintf(stderr,"%s : Process %s quiting\n",argv[0], argv[1]);
+		} else {
+			fprintf(stderr,"%s : Process %s is pausing\n", argv[1], argv[1]);
+		}
+		sem_signal(pcb->sem_id,0);
+		sleep(1); // don't pick up your own signal
+	} // end if not complete while	
+
 	// detach from runInfo
 	shmdt(runInfo);
 	runInfo = NULL;

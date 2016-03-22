@@ -4,10 +4,10 @@ To run:
 make
 oss
 
-This oss/process scheduler creates its first process after the first clock update. The scheduler has three priority levels that it handles in order 0,1,2,0.... Priority levels 0 and 1 work on a SRTF algorithm, with code to switch it to SJN commented out around it. The oss will see if it is time for a new process to be created (every 1 clock tick on average), then try to run a process on each queue. The exception is for priority level 2 which is using a Round-Robin algorithm. It will attempt to schedule all of its processes for an equal portion of the time quantum. There is code commented out that can switch oss to a "try to create a process"->"Run from a Priority Level" scheme. 
-	Currently the quantum amounts for the different priorities are 3 - priority# (3, 2, 1 for priority levels 0, 1, 2 respectively). After all priority levels are checked, oss checks if any processes have been completed and removes their PCB if so. 
-
+This oss/process scheduler creates its first process after the first clock update. The scheduler has three priority levels that it handles in order 0,1,2,0.... Priority levels 0 and 1 work on a SRTF algorithm, with code to switch it to SJN commented out around it. The oss will see if it is time for a new process to be created (every 1 clock tick on average), then try to run a process on each queue. The exception is for priority level 2 which is using a Round-Robin algorithm. There is code commented out that can switch oss to a "try to create a process"->"Run from a single Priority Level" scheme, but the currently implemented version was showing better performance. 
+	Currently the quantum amounts for the different priorities are 4 - priority# (4 & 3 for priority levels 0 & 1 respectively). The round robin queue uses a quantum of (4-priority#)/(processes in the queue) to allow each process in the lowest priority some processor time. After all priority levels are checked, oss checks if any processes have been completed and removes their PCB if so. 
 	Processes that were not interupted by I/O and did not finish is their first alloted quantum will have their priority in the system lowered. All processes start at the highest priority.
+	Processes will decrease in priority if they did not complete on priority 0, and they will further decrease to priority 2 if they had run time on priority 1 and did not finish then either. 
 
 Processes have a 50/50 of being cpu- or io- bound and will have their average completion time adjusted accordingly. Additionally, io-cound processes are more likely to not use the entire quantum allowed to it, and if this occurs, its priority is not penalized for it. 
 
@@ -17,5 +17,5 @@ The system's logical clock is represented as a double: [seconds].[milliseconds].
 
 The oss run stats are output to stderr and written/overwritten to a file called endStats.txt in the directory oss was executed in.
 
-
+The program will run until it's logical clock has passed 120 and then it will clean up and terminate the program after 1 more second of program execution time.
 

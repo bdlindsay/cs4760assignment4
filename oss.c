@@ -47,7 +47,7 @@ main (int argc, char *argv[]) {
 	// set burst and process_num each time a process is chosen
 	//q = -1; // 1 queue b/w process creation, init -1 so first queue is 0
 	while(1) { // infinite loop until alarm finishes
-		if (runInfo->lClock > 300) {
+		if (runInfo->lClock > 120) {
 			alarm(1);
 		}
 		if (nextCreate < runInfo->lClock) {
@@ -70,6 +70,33 @@ main (int argc, char *argv[]) {
 				fprintf(stderr, "Creating new process at pcb[%d]\n",next);
 				pcbs[next] = initPcb();
 				usedPcbs[next] = true;
+
+				// args for userProcess
+				sprintf(arg2, "%d", next/*selected*/); // process num in pcbs
+				sprintf(arg3, "%d", pcbs[next]->shm_id); // pcb for userProcess
+				sprintf(arg4, "%d", runInfo->shm_id); // runInfo for userProcess
+
+				if ((pcbs[next]->pid = fork()) == -1) {
+					perror("fork");
+					// reset init values if fork fails
+					removePcb(pcbs,next);
+					usedPcbs[next] = false;
+					// run a process to try to let fork work next time
+					for (i = 0; i < 3; i++) {
+						runInfo->burst = 4 - i; // -1 sec burst for each lower priority
+						scheduleProcess(i, arg1, -1); // -1 is NULL value for func
+					}
+					// update pcbs after process run
+					updatePcbs(usedPcbs);
+					// update logical clock
+					r = (double)(random() % 1000) / 1000;	
+					updateClock(r);
+					continue;
+					//return; // if fork() fails don't do anything else 
+				}
+				if (pcbs[next]->pid == 0) { // child process 
+					execl("userProcess", arg1, arg2, arg3, arg4, 0);
+				} 
 			}
 			// next process creation time
 			r = rand() % 3; // 0-2
@@ -85,7 +112,7 @@ main (int argc, char *argv[]) {
 		/*// process create -> queue -> process create...
 		runInfo->burst = 8 - q; // -1 sec burst for each lower priority
 		scheduleProcess(q, arg1, -1); // -1 is NULL value for func*/
-		// OR start process scheduler
+		// OR start process scheduler - tested, not implemented
 		/*sprintf(arg4,"%d",runInfo->shm_id);
 		if ((sp_pid = fork()) == -1) {
 			perror("fork: sp");
@@ -131,15 +158,15 @@ void updatePcbs(int usedPcbs[]) {
 			usedPcbs[i] = false;
 		} else if (pcbs[i]->ioInterupt) {
 			fprintf(stderr, "Process %d seems io-bound, maintain priority.\n", i);	
+		} else if (pcbs[i]->cTime == runInfo->lClock) {
+			fprintf(stderr,"Not changing priority of process just created.\n");
 		}	else if (pcbs[i]->priority == 0) { 
 			// not completed/no i/o intr
 			fprintf(stderr, "Process %d decreased to priority 1: %.3f.\n",i,
 				pcbs[i]->totalCpuTime);
 			pcbs[i]->priority = 1;
-		} else if (pcbs[i]->totalCpuTime == 0) { 
-			fprintf(stderr, "Giving process %d PQ1 Cpu time, maintain priority.\n",i);
 		} else if (pcbs[i]->priority == 1) { 
-			// if still not done, had cpu time
+			// if still not done
 			fprintf(stderr, "Process %d decreased to priority 2. %.3f\n",i,
 				pcbs[i]->totalCpuTime);
 			pcbs[i]->priority = 2;
@@ -190,21 +217,11 @@ void scheduleProcess(int queue, char *arg1, int rr_p_num) {
 		}
 
 		fprintf(stderr,"Queue %d scheduling process %d.\n", queue, selected);
-		// args for userProcess
-		sprintf(arg2, "%d", selected); // process num in pcbs
-		sprintf(arg3, "%d", pcbs[selected]->shm_id); // pcb for userProcess
-		sprintf(arg4, "%d", runInfo->shm_id); // runInfo for userProcess
-
-		if ((pcbs[selected]->pid = fork()) == -1) {
-			perror("fork");
-			return; // if fork() fails don't do anything else 
-		}
-		if (pcbs[selected]->pid == 0) { // child process 
-			execl("userProcess", arg1, arg2, arg3, arg4, 0);
-		} 
 		sem_signal(pcbs[selected]->sem_id,0); 
-		wait();
-		pcbs[selected]->pid = -1; // process technically ended
+		sleep(1); // don't pick up your own signal
+		sem_wait(pcbs[selected]->sem_id,0);
+		//wait();
+		//pcbs[selected]->pid = -1; // process still running this implementation 
 	}
 } // end scheduleProcess()
 
