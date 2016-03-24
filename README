@@ -19,3 +19,4 @@ The oss run stats are output to stderr and written/overwritten to a file called 
 
 The program will run until it's logical clock has passed 120 and then it will clean up and terminate the program after 1 more second of program execution time.
 
+Idle time for the system statistics is defined as the time not spent processing on user processes.

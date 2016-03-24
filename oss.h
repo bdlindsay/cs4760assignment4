@@ -68,3 +68,6 @@ double getCompletionTime(int); // SJN
 int findSJN(int);
 bool scheduleRR(char*);
 void updatePcbs(int usedPcbs[]);
+void setBit(int*,int);
+void clearBit(int*,int);
+int testBit(int*,int);

@@ -23,7 +23,7 @@ main (int argc, char *argv[]) {
 	arg4 = malloc(sizeof(int)); // shm_id to runInfo
 	int i, shm_id, q, n;
 	double r; // for random "milli seconds"
-	int usedPcbs[18] = { 0 }; // "bit vector" for used PIDs
+	int usedPcbs[1] = { 0 }; // bit vector 0-17 needed for 19 PCBs
 	bool isPcbsFull = false;
 	int next, nextCreate = 0; // points to next available PID
 	int sp_pid;
@@ -53,7 +53,7 @@ main (int argc, char *argv[]) {
 		if (nextCreate < runInfo->lClock) {
 			isPcbsFull = true;
 			for (i = 0; i < 18; i++) {
-				if (usedPcbs[i] == 0) {
+				if (testBit(usedPcbs,i) == 0) { 
 					next = i;	
 					isPcbsFull = false;	// need to set false when process killed
 					break;
@@ -61,15 +61,12 @@ main (int argc, char *argv[]) {
 			}
 			if (isPcbsFull) {
 				fprintf(stderr, "pcbs array was full trying again...\n");
-				// update logical clock if pcbs is full
-				//r = (double)(random() % 1000) / 1000;	
-				//updateClock(r);
 			} else { // create a new process
 				// create and assign pcb to the OS's array
 				// init PCB
 				fprintf(stderr, "Creating new process at pcb[%d]\n",next);
 				pcbs[next] = initPcb();
-				usedPcbs[next] = true;
+				setBit(usedPcbs,next);
 
 				// args for userProcess
 				sprintf(arg2, "%d", next/*selected*/); // process num in pcbs
@@ -80,7 +77,7 @@ main (int argc, char *argv[]) {
 					perror("fork");
 					// reset init values if fork fails
 					removePcb(pcbs,next);
-					usedPcbs[next] = false;
+					clearBit(usedPcbs,next);
 					// run a process to try to let fork work next time
 					for (i = 0; i < 3; i++) {
 						runInfo->burst = 4 - i; // -1 sec burst for each lower priority
@@ -91,8 +88,7 @@ main (int argc, char *argv[]) {
 					// update logical clock
 					r = (double)(random() % 1000) / 1000;	
 					updateClock(r);
-					continue;
-					//return; // if fork() fails don't do anything else 
+					continue; // so that oss doesn't get execl
 				}
 				if (pcbs[next]->pid == 0) { // child process 
 					execl("userProcess", arg1, arg2, arg3, arg4, 0);
@@ -140,11 +136,11 @@ void updatePcbs(int usedPcbs[]) {
 	int i;
 
 	for (i = 0; i < 18; i++) {
+		// continue if no pcb
 		if (pcbs[i] == NULL) {
 			continue;
 		}	
-		//fprintf(stderr, "oss: Is process %d P: %d done: %d\n",i,
-		//	pcbs[i]->priority, pcbs[i]->isCompleted);
+		// if there is a completed process
 		if (pcbs[i]->isCompleted) {
 			// collect data on userProcess
 			stats.tput++;
@@ -155,7 +151,7 @@ void updatePcbs(int usedPcbs[]) {
 			// remove pcb
 			fprintf(stderr,"oss: Removing finished pcb[%d]\n",i);
 			removePcb(pcbs, i);
-			usedPcbs[i] = false;
+			clearBit(usedPcbs,i);
 		} else if (pcbs[i]->ioInterupt) {
 			fprintf(stderr, "Process %d seems io-bound, maintain priority.\n", i);	
 		} else if (pcbs[i]->cTime == runInfo->lClock) {
@@ -339,6 +335,21 @@ pcb_t* initPcb() {
 	}	
 	return pcb;
 } // end initPcb()
+
+// bit array methods
+// sets kth bit to 1
+void setBit(int v[], int k) {
+	v[(k/32)] |= 1 << (k % 32);
+}
+// sets kth bit to 0
+void clearBit(int v[], int k) {
+	v[(k/32)] &= ~(1 << (k % 32));
+}
+// returns value of kth bit
+int testBit(int v[], int k) {
+	return ((v[(k/32)] & (1 << (k % 32))) != 0);	
+}
+
 
 // detach and remove a pcb
 void removePcb(pcb_t *pcbs[], int i) {
